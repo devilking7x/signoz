@@ -1,11 +1,16 @@
 import { useMemo } from 'react';
 import { Select, Spin } from 'antd';
-import { useGetAggregateKeys } from 'hooks/queryBuilder/useGetAggregateKeys';
-import { DataSource, MetricAggregateOperator } from 'types/common/queryBuilder';
+import { useFieldKeysSuggestion } from 'hooks/querySuggestions/useFieldKeysSuggestion';
+import {
+	DATA_SOURCE_TO_SIGNAL,
+	DataSource,
+	MetricAggregateOperator,
+} from 'types/common/queryBuilder';
 import { getParsedAggregationOptionsForOrderBy } from 'utils/aggregationConverter';
+import { getFieldKeyLabel } from 'utils/fieldKeyContext';
 import { useSelectPopupContainer } from 'utils/selectPopupContainer';
 
-import { selectStyle } from '../QueryBuilderSearchV2/config';
+import { selectStyle } from '../config';
 import { OrderByFilterProps } from './OrderByFilter.interfaces';
 import { useOrderByFilter } from './useOrderByFilter';
 
@@ -27,13 +32,14 @@ export function OrderByFilter({
 		handleSearchKeys,
 	} = useOrderByFilter({ query, onChange, entityVersion });
 
-	const { data, isFetching } = useGetAggregateKeys(
+	const isNoopQuery = query.aggregateOperator === MetricAggregateOperator.NOOP;
+
+	const { data: fieldKeys, isFetching } = useFieldKeysSuggestion(
 		{
-			aggregateAttribute: query.aggregateAttribute?.key || '',
-			dataSource: query.dataSource,
-			aggregateOperator: query.aggregateOperator || '',
+			signal: DATA_SOURCE_TO_SIGNAL[query.dataSource],
 			searchText: debouncedSearchText,
 		},
+		query.builderQueryType,
 		{
 			enabled: !!query.aggregateAttribute?.key || isRawQuery,
 			keepPreviousData: true,
@@ -47,33 +53,37 @@ export function OrderByFilter({
 	);
 
 	const optionsData = useMemo(() => {
-		const keyOptions = createOptions(data?.payload?.attributeKeys || []);
-		const groupByOptions = createOptions(query.groupBy);
-		const aggregationOptionsFromParsed = createOptions(parsedAggregationOptions);
+		const keyOptions = createOptions(
+			(fieldKeys ?? []).map((key) =>
+				getFieldKeyLabel(key.name, debouncedSearchText),
+			),
+		);
+		const groupByOptions = createOptions(query.groupBy.map((item) => item.key));
+		const aggregationOptionsFromParsed = createOptions(
+			parsedAggregationOptions.map((item) => item.key),
+		);
 
-		const options =
-			query.aggregateOperator === MetricAggregateOperator.NOOP
-				? keyOptions
-				: [
-						...groupByOptions,
-						...(isNewQueryV2 ? aggregationOptionsFromParsed : aggregationOptions),
-					];
+		const options = isNoopQuery
+			? keyOptions
+			: [
+					...groupByOptions,
+					...(isNewQueryV2 ? aggregationOptionsFromParsed : aggregationOptions),
+				];
 
 		return generateOptions(options);
 	}, [
 		createOptions,
-		data?.payload?.attributeKeys,
+		fieldKeys,
+		debouncedSearchText,
 		query.groupBy,
-		query.aggregateOperator,
+		isNoopQuery,
 		parsedAggregationOptions,
 		aggregationOptions,
 		generateOptions,
 		isNewQueryV2,
 	]);
 
-	const isDisabledSelect =
-		!query.aggregateAttribute?.key ||
-		query.aggregateOperator === MetricAggregateOperator.NOOP;
+	const isDisabledSelect = !query.aggregateAttribute?.key || isNoopQuery;
 
 	const isMetricsDataSource = query.dataSource === DataSource.METRICS;
 
